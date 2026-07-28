@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Family J.K.A</title>
- <link rel="manifest" href="manifest.json">
+<link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
@@ -49,6 +49,25 @@
     padding: 6px 0;
     border-bottom: 1px solid #e0e0e0;
   }
+  #perfil {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 10px;
+  }
+  #perfil img {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+  }
+  #cerrarSesion {
+    background: #e0e0e0;
+    color: #333;
+    padding: 8px 14px;
+    font-size: 0.85rem;
+    margin-top: 0;
+  }
+  #app { display: none; }
 </style>
 </head>
 <body>
@@ -56,13 +75,26 @@
   <h1>Bienvenido a Family J.K.A</h1>
   <p>Aplicación para compartir ubicación de forma segura.</p>
 
-  <button id="btnUbicacion">Compartir mi ubicación</button>
+  <div id="login">
+    <button id="btnGoogle">Iniciar sesión con Google</button>
+  </div>
 
-  <div id="estado"></div>
-  <div id="mapa"></div>
-  <div id="lista"></div>
+  <div id="app">
+    <div id="perfil">
+      <img id="fotoPerfil" src="" alt="">
+      <span id="nombrePerfil"></span>
+      <button id="cerrarSesion">Cerrar sesión</button>
+    </div>
+
+    <button id="btnUbicacion">Compartir mi ubicación</button>
+
+    <div id="estado"></div>
+    <div id="mapa"></div>
+    <div id="lista"></div>
+  </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -78,15 +110,41 @@
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
+    const auth = firebase.auth();
+    const provider = new firebase.auth.GoogleAuthProvider();
 
-    let miNombre = localStorage.getItem('familyjka_nombre');
-    if (!miNombre) {
-      miNombre = prompt('¿Cuál es tu nombre? (para identificarte en el grupo familiar)');
-      if (miNombre) {
-        localStorage.setItem('familyjka_nombre', miNombre.trim());
-        miNombre = miNombre.trim();
+    let miNombre = null;
+
+    const loginDiv = document.getElementById('login');
+    const appDiv = document.getElementById('app');
+    const btnGoogle = document.getElementById('btnGoogle');
+    const cerrarSesion = document.getElementById('cerrarSesion');
+    const fotoPerfil = document.getElementById('fotoPerfil');
+    const nombrePerfil = document.getElementById('nombrePerfil');
+
+    btnGoogle.addEventListener('click', () => {
+      auth.signInWithPopup(provider).catch((error) => {
+        alert('No se pudo iniciar sesión: ' + error.message);
+      });
+    });
+
+    cerrarSesion.addEventListener('click', () => {
+      auth.signOut();
+    });
+
+    auth.onAuthStateChanged((user) => {
+      if (user) {
+        miNombre = user.displayName || user.email;
+        fotoPerfil.src = user.photoURL || '';
+        nombrePerfil.textContent = miNombre;
+        loginDiv.style.display = 'none';
+        appDiv.style.display = 'block';
+      } else {
+        miNombre = null;
+        loginDiv.style.display = 'block';
+        appDiv.style.display = 'none';
       }
-    }
+    });
 
     const boton = document.getElementById('btnUbicacion');
     const estado = document.getElementById('estado');
@@ -101,7 +159,7 @@
 
     boton.addEventListener('click', () => {
       if (!miNombre) {
-        estado.textContent = 'Necesitas ingresar tu nombre para compartir tu ubicación.';
+        estado.textContent = 'Necesitas iniciar sesión primero.';
         return;
       }
       if (!navigator.geolocation) {
