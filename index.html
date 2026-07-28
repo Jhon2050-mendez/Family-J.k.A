@@ -123,9 +123,13 @@
     const nombrePerfil = document.getElementById('nombrePerfil');
 
     btnGoogle.addEventListener('click', () => {
-      auth.signInWithPopup(provider).catch((error) => {
+      auth.signInWithRedirect(provider);
+    });
+
+    auth.getRedirectResult().catch((error) => {
+      if (error && error.message) {
         alert('No se pudo iniciar sesión: ' + error.message);
-      });
+      }
     });
 
     cerrarSesion.addEventListener('click', () => {
