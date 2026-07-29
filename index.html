@@ -9,69 +9,18 @@
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   * { box-sizing: border-box; }
-  body {
-    font-family: -apple-system, Roboto, Arial, sans-serif;
-    margin: 0;
-    padding: 24px;
-    background: #f5f6fa;
-    color: #1a1a2e;
-  }
+  body { font-family: -apple-system, Roboto, Arial, sans-serif; margin: 0; padding: 24px; background: #f5f6fa; color: #1a1a2e; }
   h1 { font-size: 1.8rem; margin-bottom: 4px; }
   p { color: #555; }
-  input {
-    width: 100%;
-    padding: 12px;
-    margin-top: 10px;
-    border: 1px solid #ccc;
-    border-radius: 8px;
-    font-size: 1rem;
-  }
-  button {
-    background: #2d5bff;
-    color: white;
-    border: none;
-    padding: 14px 22px;
-    font-size: 1rem;
-    border-radius: 10px;
-    margin-top: 12px;
-    cursor: pointer;
-    width: 100%;
-  }
+  input { width: 100%; padding: 12px; margin-top: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 1rem; }
+  button { background: #2d5bff; color: white; border: none; padding: 14px 22px; font-size: 1rem; border-radius: 10px; margin-top: 12px; cursor: pointer; width: 100%; }
   button:active { opacity: 0.85; }
-  #estado, #estadoLogin {
-    margin-top: 14px;
-    font-size: 0.95rem;
-    color: #333;
-  }
-  #mapa {
-    margin-top: 18px;
-    height: 360px;
-    width: 100%;
-    border-radius: 12px;
-  }
-  #lista {
-    margin-top: 16px;
-    font-size: 0.9rem;
-    color: #444;
-  }
-  #lista div {
-    padding: 6px 0;
-    border-bottom: 1px solid #e0e0e0;
-  }
-  #perfil {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-top: 10px;
-  }
-  #cerrarSesion {
-    background: #e0e0e0;
-    color: #333;
-    padding: 8px 14px;
-    font-size: 0.85rem;
-    margin-top: 0;
-    width: auto;
-  }
+  #estado, #estadoLogin { margin-top: 14px; font-size: 0.95rem; color: #333; }
+  #mapa { margin-top: 18px; height: 360px; width: 100%; border-radius: 12px; }
+  #lista { margin-top: 16px; font-size: 0.9rem; color: #444; }
+  #lista div { padding: 6px 0; border-bottom: 1px solid #e0e0e0; }
+  #perfil { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+  #cerrarSesion { background: #e0e0e0; color: #333; padding: 8px 14px; font-size: 0.85rem; margin-top: 0; width: auto; }
   #app { display: none; }
 </style>
 </head>
@@ -191,25 +140,15 @@
         estado.textContent = 'Tu navegador no soporta geolocalización.';
         return;
       }
-
       estado.textContent = 'Obteniendo tu ubicación...';
-
       navigator.geolocation.getCurrentPosition(
         (posicion) => {
           const lat = posicion.coords.latitude;
           const lon = posicion.coords.longitude;
-
-          db.ref('ubicaciones/' + miNombre).set({
-            lat: lat,
-            lon: lon,
-            actualizado: Date.now()
-          });
-
+          db.ref('ubicaciones/' + miNombre).set({ lat: lat, lon: lon, actualizado: Date.now() });
           estado.textContent = `Ubicación compartida: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
         },
-        () => {
-          estado.textContent = 'No se pudo obtener tu ubicación. Revisa los permisos.';
-        },
+        () => { estado.textContent = 'No se pudo obtener tu ubicación. Revisa los permisos.'; },
         { enableHighAccuracy: true }
       );
     });
@@ -217,25 +156,20 @@
     db.ref('ubicaciones').on('value', (snapshot) => {
       const datos = snapshot.val() || {};
       listaDiv.innerHTML = '';
-
       const nombres = Object.keys(datos);
       if (nombres.length === 0) return;
-
       nombres.forEach((nombre) => {
         const { lat, lon, actualizado } = datos[nombre];
-
         if (marcadores[nombre]) {
           marcadores[nombre].setLatLng([lat, lon]);
         } else {
           marcadores[nombre] = L.marker([lat, lon]).addTo(mapa).bindPopup(nombre);
         }
-
         const hora = new Date(actualizado).toLocaleTimeString();
         const fila = document.createElement('div');
         fila.textContent = `${nombre} — actualizado ${hora}`;
         listaDiv.appendChild(fila);
       });
-
       if (miNombre && datos[miNombre]) {
         mapa.setView([datos[miNombre].lat, datos[miNombre].lon], 14);
       }
