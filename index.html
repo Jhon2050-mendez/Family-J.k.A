@@ -26,15 +26,13 @@
 </head>
 <body>
 
-  <h1>Bienvenido a Family J.K.A</h1>
+  <h1>Family J.K.A (v3)</h1>
   <p>Aplicación para compartir ubicación de forma segura.</p>
 
   <div id="login">
     <input type="text" id="tuNombre" placeholder="Tu nombre">
-    <input type="email" id="correo" placeholder="Correo electrónico">
-    <input type="password" id="clave" placeholder="Contraseña (mínimo 6 caracteres)">
-    <button id="btnEntrar">Iniciar sesión</button>
-    <button id="btnCrear">Crear cuenta nueva</button>
+    <input type="email" id="correo" placeholder="Tu correo (solo para identificarte)">
+    <button id="btnEntrar">Entrar</button>
     <div id="estadoLogin"></div>
   </div>
 
@@ -52,7 +50,6 @@
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
@@ -68,9 +65,9 @@
     };
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
-    const auth = firebase.auth();
 
-    let miNombre = null;
+    let miNombre = localStorage.getItem('familyjka_nombre');
+    let miCorreo = localStorage.getItem('familyjka_correo');
 
     const loginDiv = document.getElementById('login');
     const appDiv = document.getElementById('app');
@@ -79,46 +76,38 @@
 
     const inputNombre = document.getElementById('tuNombre');
     const inputCorreo = document.getElementById('correo');
-    const inputClave = document.getElementById('clave');
 
-    document.getElementById('btnCrear').addEventListener('click', () => {
-      const nombre = inputNombre.value.trim();
-      if (!nombre) {
-        estadoLogin.textContent = 'Escribe tu nombre.';
-        return;
-      }
-      auth.createUserWithEmailAndPassword(inputCorreo.value.trim(), inputClave.value)
-        .then((cred) => {
-          return cred.user.updateProfile({ displayName: nombre });
-        })
-        .catch((error) => {
-          estadoLogin.textContent = 'Error: ' + error.message;
-        });
-    });
+    function mostrarApp() {
+      nombrePerfil.textContent = miNombre;
+      loginDiv.style.display = 'none';
+      appDiv.style.display = 'block';
+    }
 
     document.getElementById('btnEntrar').addEventListener('click', () => {
-      auth.signInWithEmailAndPassword(inputCorreo.value.trim(), inputClave.value)
-        .catch((error) => {
-          estadoLogin.textContent = 'Error: ' + error.message;
-        });
+      const nombre = inputNombre.value.trim();
+      const correo = inputCorreo.value.trim();
+      if (!nombre || !correo) {
+        estadoLogin.textContent = 'Escribe tu nombre y tu correo.';
+        return;
+      }
+      miNombre = nombre;
+      miCorreo = correo;
+      localStorage.setItem('familyjka_nombre', nombre);
+      localStorage.setItem('familyjka_correo', correo);
+      mostrarApp();
     });
 
     document.getElementById('cerrarSesion').addEventListener('click', () => {
-      auth.signOut();
+      localStorage.removeItem('familyjka_nombre');
+      localStorage.removeItem('familyjka_correo');
+      miNombre = null;
+      loginDiv.style.display = 'block';
+      appDiv.style.display = 'none';
     });
 
-    auth.onAuthStateChanged((user) => {
-      if (user) {
-        miNombre = user.displayName || user.email;
-        nombrePerfil.textContent = miNombre;
-        loginDiv.style.display = 'none';
-        appDiv.style.display = 'block';
-      } else {
-        miNombre = null;
-        loginDiv.style.display = 'block';
-        appDiv.style.display = 'none';
-      }
-    });
+    if (miNombre && miCorreo) {
+      mostrarApp();
+    }
 
     const boton = document.getElementById('btnUbicacion');
     const estado = document.getElementById('estado');
