@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Family J.K.A (v5)</title>
+<title>Family J.K.A (v6)</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
@@ -16,8 +16,8 @@
   input { width: 100%; padding: 12px; margin-top: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 1rem; }
   button { background: #2d5bff; color: white; border: none; padding: 14px 22px; font-size: 1rem; border-radius: 10px; margin-top: 12px; cursor: pointer; width: 100%; }
   button:active { opacity: 0.85; }
-  #estado, #estadoLogin { margin-top: 14px; font-size: 0.95rem; color: #333; }
-  #mapa { margin-top: 12px; height: 320px; width: 100%; border-radius: 12px; }
+  #estado, #estadoLogin, #estadoNotif { margin-top: 14px; font-size: 0.95rem; color: #333; }
+  #mapa { margin-top: 12px; height: 340px; width: 100%; border-radius: 12px; }
   #lista div { padding: 6px 0; border-bottom: 1px solid #e0e0e0; font-size: 0.9rem; }
   #perfil { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
   #cerrarSesion { background: #e0e0e0; color: #333; padding: 8px 14px; font-size: 0.85rem; margin-top: 0; width: auto; }
@@ -33,7 +33,7 @@
 </head>
 <body>
 
-  <h1>Family J.K.A (v5)</h1>
+  <h1>Family J.K.A (v6)</h1>
   <p>Aplicación para compartir ubicación de forma segura.</p>
 
   <div id="login">
@@ -49,6 +49,9 @@
       <span id="nombrePerfil"></span>
       <button id="cerrarSesion">Cerrar sesión</button>
     </div>
+
+    <button id="btnActivarNotif" class="btnSecundario">🔔 Activar notificaciones</button>
+    <div id="estadoNotif"></div>
 
     <div id="bannerOffline">📴 Sin conexión — guardando localmente, se enviará cuando vuelva el internet.</div>
     <div id="bannerSOS"></div>
@@ -93,9 +96,24 @@
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('sw.js').then((reg) => { swReg = reg; });
     }
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
+    const estadoNotif = document.getElementById('estadoNotif');
+    function mostrarEstadoNotif() {
+      if (!('Notification' in window)) { estadoNotif.textContent = 'Tu navegador no soporta notificaciones.'; return; }
+      estadoNotif.textContent = 'Estado de notificaciones: ' + Notification.permission;
     }
+    document.getElementById('btnActivarNotif').addEventListener('click', () => {
+      if (!('Notification' in window)) { estadoNotif.textContent = 'Tu navegador no soporta notificaciones.'; return; }
+      if (Notification.permission === 'denied') {
+        estadoNotif.textContent = 'Están bloqueadas. Toca el candado 🔒 junto a la dirección → Permisos → Notificaciones → cámbialo a Permitir, y recarga la página.';
+        return;
+      }
+      Notification.requestPermission().then(() => {
+        mostrarEstadoNotif();
+        notificar('Family J.K.A', 'Las notificaciones están activas.');
+      });
+    });
+    mostrarEstadoNotif();
+
     function notificar(titulo, cuerpo) {
       if (!('Notification' in window) || Notification.permission !== 'granted') return;
       if (swReg) {
@@ -172,6 +190,18 @@
     }).addTo(mapa);
 
     const marcadores = {};
+    const rutas = {};
+    const coloresRuta = ['#2d5bff', '#d92d2d', '#2d9d5b', '#e0a022', '#8a2de0', '#00b3b3'];
+    const colorAsignado = {};
+    let siguienteColor = 0;
+
+    function colorPara(nombre) {
+      if (!colorAsignado[nombre]) {
+        colorAsignado[nombre] = coloresRuta[siguienteColor % coloresRuta.length];
+        siguienteColor++;
+      }
+      return colorAsignado[nombre];
+    }
 
     function distanciaMetros(lat1, lon1, lat2, lon2) {
       const R = 6371000;
@@ -314,6 +344,12 @@
             marcadores[nombre] = L.marker([lat, lon]).addTo(mapa).bindPopup(nombre);
           }
 
+          // --- ruta / recorrido en tiempo real ---
+          if (!rutas[nombre]) {
+            rutas[nombre] = L.polyline([], { color: colorPara(nombre), weight: 4, opacity: 0.7 }).addTo(mapa);
+            escucharHistorialParaRuta(nombre);
+          }
+
           const hora = new Date(actualizado).toLocaleTimeString();
           const fila = document.createElement('div');
           fila.textContent = (sos ? '🆘 ' : '') + `${nombre} — actualizado ${hora}`;
@@ -346,6 +382,16 @@
           fila.textContent = '📍 ' + nombreLugar;
           lugaresDiv.appendChild(fila);
         });
+      });
+    }
+
+    function escucharHistorialParaRuta(nombre) {
+      db.ref('ubicaciones/' + miCodigo + '/' + nombre + '/historial').limitToLast(50).on('value', (snap) => {
+        const datos = snap.val() || {};
+        const puntos = Object.values(datos)
+          .sort((a, b) => a.hora - b.hora)
+          .map((h) => [h.lat, h.lon]);
+        if (rutas[nombre]) rutas[nombre].setLatLngs(puntos);
       });
     }
   </script>
