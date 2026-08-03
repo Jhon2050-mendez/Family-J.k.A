@@ -3,35 +3,43 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Family J.K.A</title>
+<title>Family J.K.A (v5)</title>
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
 <style>
   * { box-sizing: border-box; }
   body { font-family: -apple-system, Roboto, Arial, sans-serif; margin: 0; padding: 24px; background: #f5f6fa; color: #1a1a2e; }
-  h1 { font-size: 1.8rem; margin-bottom: 4px; }
+  h1 { font-size: 1.6rem; margin-bottom: 4px; }
+  h2 { font-size: 1.1rem; margin: 20px 0 8px; }
   p { color: #555; }
   input { width: 100%; padding: 12px; margin-top: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 1rem; }
   button { background: #2d5bff; color: white; border: none; padding: 14px 22px; font-size: 1rem; border-radius: 10px; margin-top: 12px; cursor: pointer; width: 100%; }
   button:active { opacity: 0.85; }
   #estado, #estadoLogin { margin-top: 14px; font-size: 0.95rem; color: #333; }
-  #mapa { margin-top: 18px; height: 360px; width: 100%; border-radius: 12px; }
-  #lista { margin-top: 16px; font-size: 0.9rem; color: #444; }
-  #lista div { padding: 6px 0; border-bottom: 1px solid #e0e0e0; }
+  #mapa { margin-top: 12px; height: 320px; width: 100%; border-radius: 12px; }
+  #lista div { padding: 6px 0; border-bottom: 1px solid #e0e0e0; font-size: 0.9rem; }
   #perfil { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
   #cerrarSesion { background: #e0e0e0; color: #333; padding: 8px 14px; font-size: 0.85rem; margin-top: 0; width: auto; }
   #app { display: none; }
+  .btnSOS { background: #d92d2d; }
+  .btnSecundario { background: #555; }
+  #bannerSOS { display: none; background: #d92d2d; color: white; padding: 12px; border-radius: 10px; margin-top: 12px; font-weight: bold; }
+  #bannerCerca { display: none; background: #2d9d5b; color: white; padding: 12px; border-radius: 10px; margin-top: 12px; }
+  #bannerOffline { display: none; background: #e0a022; color: white; padding: 12px; border-radius: 10px; margin-top: 12px; }
+  #historial div, #lugares div { padding: 6px 0; border-bottom: 1px solid #e0e0e0; font-size: 0.85rem; }
+  .oculto { display: none; }
 </style>
 </head>
 <body>
 
-  <h1>Family J.K.A (v3)</h1>
+  <h1>Family J.K.A (v5)</h1>
   <p>Aplicación para compartir ubicación de forma segura.</p>
 
   <div id="login">
     <input type="text" id="tuNombre" placeholder="Tu nombre">
-    <input type="email" id="correo" placeholder="Tu correo (solo para identificarte)">
+    <input type="email" id="correo" placeholder="Tu correo">
+    <input type="text" id="codigoFamilia" placeholder="Código de familia (el mismo para todos)">
     <button id="btnEntrar">Entrar</button>
     <div id="estadoLogin"></div>
   </div>
@@ -42,11 +50,25 @@
       <button id="cerrarSesion">Cerrar sesión</button>
     </div>
 
+    <div id="bannerOffline">📴 Sin conexión — guardando localmente, se enviará cuando vuelva el internet.</div>
+    <div id="bannerSOS"></div>
+    <div id="bannerCerca"></div>
+
     <button id="btnUbicacion">Compartir mi ubicación</button>
+    <button id="btnSOS" class="btnSOS">🆘 Enviar SOS</button>
+    <button id="btnCancelarSOS" class="btnSecundario oculto">Cancelar mi SOS</button>
 
     <div id="estado"></div>
     <div id="mapa"></div>
     <div id="lista"></div>
+
+    <h2>Historial (mis últimas ubicaciones)</h2>
+    <div id="historial"></div>
+
+    <h2>Lugares guardados</h2>
+    <input type="text" id="nombreLugar" placeholder="Nombre del lugar (ej: Casa)">
+    <button id="btnGuardarLugar" class="btnSecundario">Guardar mi ubicación actual como este lugar</button>
+    <div id="lugares"></div>
   </div>
 
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
@@ -66,52 +88,83 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
+    // --- Service Worker + notificaciones ---
+    let swReg = null;
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then((reg) => { swReg = reg; });
+    }
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+    function notificar(titulo, cuerpo) {
+      if (!('Notification' in window) || Notification.permission !== 'granted') return;
+      if (swReg) {
+        swReg.showNotification(titulo, { body: cuerpo, icon: 'icon.svg' });
+      } else {
+        new Notification(titulo, { body: cuerpo });
+      }
+    }
+
     let miNombre = localStorage.getItem('familyjka_nombre');
     let miCorreo = localStorage.getItem('familyjka_correo');
+    let miCodigo = localStorage.getItem('familyjka_codigo');
+    let ultimaLat = null, ultimaLon = null;
+    let sosConocidos = {};
+    let cercaDeActual = null;
 
     const loginDiv = document.getElementById('login');
     const appDiv = document.getElementById('app');
     const nombrePerfil = document.getElementById('nombrePerfil');
     const estadoLogin = document.getElementById('estadoLogin');
+    const bannerOffline = document.getElementById('bannerOffline');
 
     const inputNombre = document.getElementById('tuNombre');
     const inputCorreo = document.getElementById('correo');
+    const inputCodigo = document.getElementById('codigoFamilia');
 
     function mostrarApp() {
-      nombrePerfil.textContent = miNombre;
+      nombrePerfil.textContent = miNombre + ' (familia: ' + miCodigo + ')';
       loginDiv.style.display = 'none';
       appDiv.style.display = 'block';
+      escucharDatos();
+      actualizarBannerConexion();
     }
 
     document.getElementById('btnEntrar').addEventListener('click', () => {
       const nombre = inputNombre.value.trim();
       const correo = inputCorreo.value.trim();
-      if (!nombre || !correo) {
-        estadoLogin.textContent = 'Escribe tu nombre y tu correo.';
+      const codigo = inputCodigo.value.trim().toUpperCase();
+      if (!nombre || !correo || !codigo) {
+        estadoLogin.textContent = 'Completa tu nombre, correo y el código de familia.';
         return;
       }
-      miNombre = nombre;
-      miCorreo = correo;
+      miNombre = nombre; miCorreo = correo; miCodigo = codigo;
       localStorage.setItem('familyjka_nombre', nombre);
       localStorage.setItem('familyjka_correo', correo);
+      localStorage.setItem('familyjka_codigo', codigo);
       mostrarApp();
     });
 
     document.getElementById('cerrarSesion').addEventListener('click', () => {
       localStorage.removeItem('familyjka_nombre');
       localStorage.removeItem('familyjka_correo');
+      localStorage.removeItem('familyjka_codigo');
       miNombre = null;
       loginDiv.style.display = 'block';
       appDiv.style.display = 'none';
     });
 
-    if (miNombre && miCorreo) {
-      mostrarApp();
-    }
+    if (miNombre && miCorreo && miCodigo) mostrarApp();
 
     const boton = document.getElementById('btnUbicacion');
     const estado = document.getElementById('estado');
     const listaDiv = document.getElementById('lista');
+    const historialDiv = document.getElementById('historial');
+    const lugaresDiv = document.getElementById('lugares');
+    const bannerSOS = document.getElementById('bannerSOS');
+    const bannerCerca = document.getElementById('bannerCerca');
+    const btnSOS = document.getElementById('btnSOS');
+    const btnCancelarSOS = document.getElementById('btnCancelarSOS');
 
     const mapa = L.map('mapa').setView([4.6, -74.1], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -120,49 +173,181 @@
 
     const marcadores = {};
 
+    function distanciaMetros(lat1, lon1, lat2, lon2) {
+      const R = 6371000;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const a = Math.sin(dLat/2)**2 + Math.cos(lat1*Math.PI/180) * Math.cos(lat2*Math.PI/180) * Math.sin(dLon/2)**2;
+      return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    // --- Cola sin conexión ---
+    function obtenerCola() {
+      return JSON.parse(localStorage.getItem('familyjka_cola') || '[]');
+    }
+    function guardarCola(cola) {
+      localStorage.setItem('familyjka_cola', JSON.stringify(cola));
+    }
+    function actualizarBannerConexion() {
+      bannerOffline.style.display = navigator.onLine ? 'none' : 'block';
+    }
+
+    function enviarAFirebase(lat, lon, hora) {
+      db.ref('ubicaciones/' + miCodigo + '/' + miNombre).update({ lat: lat, lon: lon, actualizado: hora });
+      db.ref('ubicaciones/' + miCodigo + '/' + miNombre + '/historial').push({ lat: lat, lon: lon, hora: hora });
+    }
+
+    function sincronizarCola() {
+      const cola = obtenerCola();
+      if (cola.length === 0) return;
+      cola.forEach((punto) => enviarAFirebase(punto.lat, punto.lon, punto.hora));
+      guardarCola([]);
+      estado.textContent = `Se sincronizaron ${cola.length} ubicación(es) guardadas sin conexión.`;
+    }
+
+    window.addEventListener('online', () => { actualizarBannerConexion(); sincronizarCola(); });
+    window.addEventListener('offline', actualizarBannerConexion);
+    setInterval(() => { if (navigator.onLine) sincronizarCola(); }, 15000);
+
+    function revisarLugarCercano(lat, lon) {
+      db.ref('lugares/' + miCodigo).once('value', (snap) => {
+        const lugares = snap.val() || {};
+        let cercaDe = null;
+        Object.keys(lugares).forEach((nombreLugar) => {
+          const l = lugares[nombreLugar];
+          if (distanciaMetros(lat, lon, l.lat, l.lon) < 150) cercaDe = nombreLugar;
+        });
+        if (cercaDe) {
+          bannerCerca.style.display = 'block';
+          bannerCerca.textContent = '📍 Estás cerca de: ' + cercaDe;
+          if (cercaDeActual !== cercaDe) {
+            notificar('Llegaste a un lugar', 'Estás cerca de: ' + cercaDe);
+          }
+        } else {
+          bannerCerca.style.display = 'none';
+        }
+        cercaDeActual = cercaDe;
+      });
+    }
+
+    function guardarUbicacion(lat, lon) {
+      ultimaLat = lat; ultimaLon = lon;
+      const hora = Date.now();
+      if (navigator.onLine) {
+        enviarAFirebase(lat, lon, hora);
+      } else {
+        const cola = obtenerCola();
+        cola.push({ lat, lon, hora });
+        guardarCola(cola);
+        estado.textContent = 'Sin conexión: ubicación guardada en tu celular, se enviará cuando vuelva el internet.';
+      }
+      revisarLugarCercano(lat, lon);
+    }
+
     boton.addEventListener('click', () => {
-      if (!miNombre) {
-        estado.textContent = 'Necesitas iniciar sesión primero.';
-        return;
-      }
-      if (!navigator.geolocation) {
-        estado.textContent = 'Tu navegador no soporta geolocalización.';
-        return;
-      }
+      if (!navigator.geolocation) { estado.textContent = 'Tu navegador no soporta geolocalización.'; return; }
       estado.textContent = 'Obteniendo tu ubicación...';
       navigator.geolocation.getCurrentPosition(
         (posicion) => {
           const lat = posicion.coords.latitude;
           const lon = posicion.coords.longitude;
-          db.ref('ubicaciones/' + miNombre).set({ lat: lat, lon: lon, actualizado: Date.now() });
-          estado.textContent = `Ubicación compartida: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
+          guardarUbicacion(lat, lon);
+          if (navigator.onLine) estado.textContent = `Ubicación compartida: ${lat.toFixed(5)}, ${lon.toFixed(5)}`;
         },
         () => { estado.textContent = 'No se pudo obtener tu ubicación. Revisa los permisos.'; },
         { enableHighAccuracy: true }
       );
     });
 
-    db.ref('ubicaciones').on('value', (snapshot) => {
-      const datos = snapshot.val() || {};
-      listaDiv.innerHTML = '';
-      const nombres = Object.keys(datos);
-      if (nombres.length === 0) return;
-      nombres.forEach((nombre) => {
-        const { lat, lon, actualizado } = datos[nombre];
-        if (marcadores[nombre]) {
-          marcadores[nombre].setLatLng([lat, lon]);
+    btnSOS.addEventListener('click', () => {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition((posicion) => {
+        const lat = posicion.coords.latitude;
+        const lon = posicion.coords.longitude;
+        const datosSOS = { lat: lat, lon: lon, actualizado: Date.now(), sos: true };
+        if (navigator.onLine) {
+          db.ref('ubicaciones/' + miCodigo + '/' + miNombre).update(datosSOS);
+          estado.textContent = 'SOS enviado con tu ubicación actual.';
         } else {
-          marcadores[nombre] = L.marker([lat, lon]).addTo(mapa).bindPopup(nombre);
+          const cola = obtenerCola();
+          cola.push({ lat, lon, hora: Date.now(), sos: true });
+          guardarCola(cola);
+          estado.textContent = 'Sin conexión: SOS guardado, se enviará apenas vuelva el internet.';
         }
-        const hora = new Date(actualizado).toLocaleTimeString();
-        const fila = document.createElement('div');
-        fila.textContent = `${nombre} — actualizado ${hora}`;
-        listaDiv.appendChild(fila);
+        btnCancelarSOS.classList.remove('oculto');
       });
-      if (miNombre && datos[miNombre]) {
-        mapa.setView([datos[miNombre].lat, datos[miNombre].lon], 14);
-      }
     });
+
+    btnCancelarSOS.addEventListener('click', () => {
+      db.ref('ubicaciones/' + miCodigo + '/' + miNombre + '/sos').set(false);
+      btnCancelarSOS.classList.add('oculto');
+    });
+
+    document.getElementById('btnGuardarLugar').addEventListener('click', () => {
+      const nombreLugar = document.getElementById('nombreLugar').value.trim();
+      if (!nombreLugar) { estado.textContent = 'Escribe un nombre para el lugar.'; return; }
+      if (ultimaLat === null) { estado.textContent = 'Primero comparte tu ubicación una vez.'; return; }
+      db.ref('lugares/' + miCodigo + '/' + nombreLugar).set({ lat: ultimaLat, lon: ultimaLon });
+      document.getElementById('nombreLugar').value = '';
+    });
+
+    function escucharDatos() {
+      db.ref('ubicaciones/' + miCodigo).on('value', (snapshot) => {
+        const datos = snapshot.val() || {};
+        listaDiv.innerHTML = '';
+        let haySOS = false;
+        const nombres = Object.keys(datos);
+        nombres.forEach((nombre) => {
+          const info = datos[nombre];
+          if (!info || info.lat == null) return;
+          const { lat, lon, actualizado, sos } = info;
+          if (sos) haySOS = true;
+
+          if (sos && !sosConocidos[nombre] && nombre !== miNombre) {
+            notificar('🆘 SOS de ' + nombre, 'Revisa el mapa, envió una alerta de emergencia.');
+          }
+          sosConocidos[nombre] = !!sos;
+
+          if (marcadores[nombre]) {
+            marcadores[nombre].setLatLng([lat, lon]);
+          } else {
+            marcadores[nombre] = L.marker([lat, lon]).addTo(mapa).bindPopup(nombre);
+          }
+
+          const hora = new Date(actualizado).toLocaleTimeString();
+          const fila = document.createElement('div');
+          fila.textContent = (sos ? '🆘 ' : '') + `${nombre} — actualizado ${hora}`;
+          listaDiv.appendChild(fila);
+        });
+
+        bannerSOS.style.display = haySOS ? 'block' : 'none';
+        if (haySOS) bannerSOS.textContent = '🆘 Alguien de la familia envió un SOS. Revisa el mapa.';
+
+        if (miNombre && datos[miNombre]) {
+          mapa.setView([datos[miNombre].lat, datos[miNombre].lon], 14);
+        }
+      });
+
+      db.ref('ubicaciones/' + miCodigo + '/' + miNombre + '/historial').limitToLast(10).on('value', (snap) => {
+        const datos = snap.val() || {};
+        historialDiv.innerHTML = '';
+        Object.values(datos).reverse().forEach((h) => {
+          const fila = document.createElement('div');
+          fila.textContent = new Date(h.hora).toLocaleString() + ' — ' + h.lat.toFixed(5) + ', ' + h.lon.toFixed(5);
+          historialDiv.appendChild(fila);
+        });
+      });
+
+      db.ref('lugares/' + miCodigo).on('value', (snap) => {
+        const datos = snap.val() || {};
+        lugaresDiv.innerHTML = '';
+        Object.keys(datos).forEach((nombreLugar) => {
+          const fila = document.createElement('div');
+          fila.textContent = '📍 ' + nombreLugar;
+          lugaresDiv.appendChild(fila);
+        });
+      });
+    }
   </script>
 
 </body>
